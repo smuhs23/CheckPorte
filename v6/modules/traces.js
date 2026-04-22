@@ -5,6 +5,7 @@
 import { openModal, closeModal, showInfo, uid, fmt, fmtEur, escapeHtml, renderPhotos } from './ui.js';
 import { distMeters, totalLen, recalcSegments, cableEffectiveLength, cableUnitPrice } from './calc.js';
 import { OF_DEFS, TRACE_COLOR, PRICE_GRABEN, PRICE_HAND } from './constants.js';
+import { openPickCable, openCableTypesCatalog } from './cableTypes.js';
 
 let currentTraceId = null;
 let currentSegIdx = null;
@@ -107,12 +108,15 @@ function finishTrace(ctx) {
   openTrace(t.id, ctx);
 }
 
-// ===== Trace Detail Dialog (Phase-1-Version, basic) =====
+// ===== Trace Detail Dialog (v6 vollständig) =====
 export function openTrace(id, ctx) {
   const t = ctx.state.traces.find(x => x.id === id);
   if (!t) return;
   currentTraceId = id;
   recalcSegments(t);
+
+  // Verknüpfte Assets suchen
+  const linkedObjs = ctx.state.objects.filter(o => o.linkedTraceId === t.id);
 
   const sheet = document.querySelector('#modalTrace .sheet');
   const len = totalLen(t);
@@ -127,13 +131,27 @@ export function openTrace(id, ctx) {
         <b>Gesamtlänge:</b> ${fmt(len)} m · ${t.points.length} Punkte · ${t.segments.length} Segmente
       </div>
 
+      ${linkedObjs.length ? `
+        <div style="background:#eef;border-left:3px solid var(--navy);padding:10px;border-radius:4px;font-size:12px;margin-bottom:10px">
+          <b style="color:var(--navy)">Verknüpfte Assets (${linkedObjs.length}):</b><br>
+          ${linkedObjs.map(o => {
+            const cat = ctx.state.catalog.find(c => c.id === o.catId);
+            const icon = cat ? (cat.iconType === 'text' ? cat.icon : (cat.defaultEmoji || cat.icon)) : '?';
+            const name = o.customName || (cat ? cat.name : 'Unbekannt');
+            const segInfo = (o.linkedSegmentIdx != null) ? ` · Seg ${o.linkedSegmentIdx + 1}` : '';
+            return `<span style="display:inline-block;background:#fff;padding:3px 8px;border-radius:10px;margin:2px 2px 0 0;font-size:11px">${icon} ${escapeHtml(name)}${segInfo}</span>`;
+          }).join('')}
+        </div>
+      ` : ''}
+
       <h3 style="color:var(--navy);font-size:13px;margin:14px 0 4px">Segmente (Oberfläche pro Abschnitt)</h3>
-      <small style="color:#666">Segment antippen → Oberfläche wechseln. Geht auch direkt in der Karte.</small>
+      <small style="color:#666">Segment antippen → Oberfläche wechseln. 🗑 löscht Segment.</small>
       <div id="trSegList" class="seg-list"></div>
 
       <h3 style="color:var(--navy);font-size:13px;margin:14px 0 4px">Leitungs-Belegung im Graben</h3>
-      <small style="color:#666">${t.cables && t.cables.length ? 'Liste der im Graben liegenden Leitungen.' : 'Noch keine Leitungen zugewiesen. Vollständiger Editor kommt in Phase 2.'}</small>
+      <small style="color:#666">Typ, Anzahl, Reserve (% oder m), Preis-Override pro Leitung.</small>
       <div id="trCables" style="margin-top:4px"></div>
+      <button id="trAddCableBtn" class="cbl-add-btn">+ Leitung hinzufügen</button>
 
       <label>Notiz</label>
       <textarea id="trNote" rows="2">${escapeHtml(t.note || '')}</textarea>
@@ -154,7 +172,7 @@ export function openTrace(id, ctx) {
   `;
 
   renderTraceSegments(t, ctx);
-  renderCablesSimple(t);
+  renderCablesFull(t, ctx);
   renderTracePoints(t, ctx);
   if (!t.photos) t.photos = [];
   renderPhotos('trPhotos', t.photos, () => updateTraceSum(t));
@@ -165,6 +183,22 @@ export function openTrace(id, ctx) {
     if (act === 'close') closeModal('modalTrace');
     if (act === 'del') deleteCurrentTrace(ctx);
     if (act === 'save') saveCurrentTrace(ctx);
+    if (e.target.id === 'trAddCableBtn') {
+      openPickCable(ctx, (cableType) => {
+        if (!t.cables) t.cables = [];
+        t.cables.push({
+          typeId: cableType.id,
+          label: cableType.label,
+          priceSnapshot: cableType.price,
+          priceOverride: null,
+          count: 1,
+          reserveMode: 'pct',
+          reserveValue: 10
+        });
+        renderCablesFull(t, ctx);
+        updateTraceSum(t);
+      });
+    }
   };
 
   openModal('modalTrace');
@@ -197,26 +231,81 @@ function renderTraceSegments(t, ctx) {
   });
 }
 
-function renderCablesSimple(t) {
+function renderCablesFull(t, ctx) {
   const c = document.getElementById('trCables');
-  if (!t.cables || !t.cables.length) {
-    c.innerHTML = '<div style="padding:10px;color:#999;font-size:12px;background:var(--bg);border-radius:6px">Keine Leitungen eingetragen.</div>';
+  if (!t.cables) t.cables = [];
+  if (!t.cables.length) {
+    c.innerHTML = '<div style="padding:10px;color:#999;font-size:12px;background:var(--bg);border-radius:6px;text-align:center">Noch keine Leitungen im Graben.</div>';
     return;
   }
-  let html = '<div style="border:1px solid #e0e0e0;border-radius:6px">';
-  t.cables.forEach(cab => {
-    const reserveStr = cab.reserveMode === 'm' ? `+${cab.reserveValue} m` : `+${cab.reserveValue} %`;
+  let html = '<div class="cbl-list">';
+  t.cables.forEach((cab, i) => {
+    const cableType = ctx.state.cableTypes.find(ct => ct.id === cab.typeId);
+    const color = cableType?.color || '#666';
+    const isCustom = cableType && !cableType.builtin;
+    const iconLabel = cab.typeId.toUpperCase().slice(0, 3);
+    const effPrice = cableUnitPrice(cab);
+    const showOverride = cab.priceOverride != null;
     html += `
-      <div style="padding:8px 10px;border-bottom:1px solid #eee;font-size:12px;display:flex;align-items:center;gap:8px">
-        <div style="flex:1">
-          <div style="font-weight:600;color:var(--navy)">${escapeHtml(cab.label)}</div>
-          <small style="color:#888">${cab.count}× · Reserve ${reserveStr} · ${fmt(cableUnitPrice(cab))} €/m</small>
+      <div class="cbl-row-v6 ${isCustom ? 'custom' : ''}">
+        <div class="icn" style="background:${color}">${escapeHtml(iconLabel)}</div>
+        <div>
+          <div class="name">${escapeHtml(cab.label)}${isCustom ? ' <span class="tag-badge custom">Eigen</span>' : ''}</div>
+          <small>${fmt(effPrice)} €/m${showOverride ? ' <b style="color:var(--orange)">· Override</b>' : ''}${cableType?.lvPos ? ' · LV ' + escapeHtml(cableType.lvPos) : ''}</small>
+          <div class="inputs">
+            <input type="number" min="0" step="1" data-cab-idx="${i}" data-field="count" value="${cab.count}" title="Anzahl">
+            <div class="reserve">
+              <select data-cab-idx="${i}" data-field="reserveMode">
+                <option value="pct" ${cab.reserveMode === 'pct' ? 'selected' : ''}>%</option>
+                <option value="m" ${cab.reserveMode === 'm' ? 'selected' : ''}>m</option>
+              </select>
+              <input type="number" min="0" step="1" data-cab-idx="${i}" data-field="reserveValue" value="${cab.reserveValue}" title="Reserve">
+            </div>
+          </div>
+          <details style="margin-top:6px">
+            <summary style="font-size:10px;color:#888;cursor:pointer">Preis-Override</summary>
+            <input type="number" min="0" step="0.01" data-cab-idx="${i}" data-field="priceOverride" value="${cab.priceOverride ?? ''}" placeholder="leer = ${fmt(cab.priceSnapshot)} (aus Katalog)" style="margin-top:4px">
+          </details>
         </div>
+        <button class="del-x" data-del-cab="${i}" title="Leitung entfernen">×</button>
       </div>
     `;
   });
   html += '</div>';
   c.innerHTML = html;
+
+  // Input-Events
+  c.querySelectorAll('input, select').forEach(el => {
+    const idx = parseInt(el.dataset.cabIdx);
+    const field = el.dataset.field;
+    if (isNaN(idx) || !field) return;
+    el.oninput = () => {
+      const cab = t.cables[idx];
+      if (!cab) return;
+      if (field === 'reserveMode') {
+        cab.reserveMode = el.value;
+      } else if (field === 'priceOverride') {
+        const v = el.value.trim();
+        cab.priceOverride = v === '' ? null : parseFloat(v);
+      } else {
+        cab[field] = parseFloat(el.value) || 0;
+      }
+      updateTraceSum(t);
+    };
+    el.onchange = el.oninput;
+  });
+
+  c.querySelectorAll('[data-del-cab]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.delCab);
+      if (isNaN(idx)) return;
+      if (!confirm(`Leitung "${t.cables[idx].label}" aus dieser Trasse entfernen?`)) return;
+      t.cables.splice(idx, 1);
+      renderCablesFull(t, ctx);
+      updateTraceSum(t);
+    };
+  });
 }
 
 function renderTracePoints(t, ctx) {

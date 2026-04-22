@@ -116,14 +116,36 @@ function renderPins(ctx) {
       ctx.save();
     });
 
-    // Tooltip
-    const tipParts = [];
-    if (o.customName) tipParts.push(o.customName);
-    tipParts.push(s.cat.name);
-    if (o.qty > 1) tipParts.push('×' + o.qty);
-    if (o.amps) tipParts.push(o.amps + 'A');
-    if (o.kw) tipParts.push(o.kw + 'kW');
-    m.bindTooltip(tipParts.join(' · '), { direction:'top', offset:[0, -26] });
+    // Tooltip — reichhaltig mit allen relevanten Infos
+    const tipLines = [];
+    if (o.customName) {
+      tipLines.push(`<b>${escapeHtml(o.customName)}</b>`);
+      tipLines.push(`<span style="color:#aaa;font-size:10px">${escapeHtml(s.cat.name)}</span>`);
+    } else {
+      tipLines.push(`<b>${escapeHtml(s.cat.name)}</b>`);
+    }
+    const sub = [];
+    if (s.cat.category) sub.push(s.cat.category);
+    if (s.cat.pos) sub.push('LV ' + s.cat.pos);
+    if (sub.length) tipLines.push(`<span style="color:#ccc;font-size:10px">${escapeHtml(sub.join(' · '))}</span>`);
+
+    const spec = [];
+    if (o.qty > 1) spec.push('×' + o.qty);
+    if (o.amps) spec.push(o.amps + ' A');
+    if (o.kw) spec.push(o.kw + ' kW');
+    if (spec.length) tipLines.push(spec.join(' · '));
+
+    if (o.linkedTraceId) {
+      const t = ctx.state.traces.find(x => x.id === o.linkedTraceId);
+      if (t) {
+        const idx = ctx.state.traces.indexOf(t);
+        const segInfo = (o.linkedSegmentIdx != null) ? ` · Seg ${o.linkedSegmentIdx + 1}` : ' · Auto';
+        tipLines.push(`<span style="color:#FFA000">🚧 Trasse #${idx + 1}${segInfo}</span>`);
+      }
+    }
+    if (o.note) tipLines.push(`<span style="color:#ccc;font-size:10px;font-style:italic">📝 ${escapeHtml(o.note.length > 40 ? o.note.slice(0, 40) + '…' : o.note)}</span>`);
+
+    m.bindTooltip(tipLines.join('<br>'), { direction: 'top', offset: [0, -26], className: 'pin-tooltip' });
   });
 }
 
@@ -215,31 +237,47 @@ function renderTraces(ctx) {
 export function renderLegend(state) {
   const el = document.getElementById('legend');
   if (!el) return;
-  const usedCats = new Set();
+
+  // Assets nach Typ gruppieren und zählen
+  const catStats = {}; // cat.id → { cat, count, color, displayIcon }
   state.objects.forEach(o => {
     const cat = state.catalog.find(c => c.id === o.catId);
     if (!cat) return;
     const iconType = o.iconTypeOverride || cat.iconType || 'hybrid';
     const disp = iconType === 'text' ? cat.icon : (cat.defaultEmoji || cat.icon);
-    usedCats.add(cat.id + '|' + (o.colorOverride || cat.color) + '|' + disp + '|' + cat.name);
+    const key = cat.id;
+    if (!catStats[key]) {
+      catStats[key] = { cat, count: 0, color: o.colorOverride || cat.color, displayIcon: disp };
+    }
+    catStats[key].count += (Number(o.qty) || 1);
   });
+
+  // Oberflächen-Summen
+  const ofSum = {};
+  state.traces.forEach(t => {
+    t.segments.forEach(seg => {
+      ofSum[seg.of] = (ofSum[seg.of] || 0) + seg.len;
+    });
+  });
+
   const hasTraces = state.traces.length > 0;
-  const hasObjects = usedCats.size > 0;
+  const hasObjects = Object.keys(catStats).length > 0;
 
   el.style.display = 'block';
   let html = '';
   if (hasObjects) {
     html += '<div class="title">Assets</div>';
-    Array.from(usedCats).forEach(k => {
-      const [id, col, ic, nm] = k.split('|');
-      html += `<div class="row"><div class="sw" style="background:${col}"></div>${escapeHtml(ic)} · ${escapeHtml(nm)}</div>`;
+    Object.values(catStats).forEach(s => {
+      html += `<div class="row"><div class="sw" style="background:${s.color}"></div>${escapeHtml(s.displayIcon)} · ${escapeHtml(s.cat.name)} <b style="margin-left:auto;color:var(--navy)">×${s.count}</b></div>`;
     });
   }
   if (hasTraces) {
     if (hasObjects) html += '<hr>';
     html += '<div class="title">Kabelgräben (Oberfläche)</div>';
     Object.entries(OF_DEFS).forEach(([k, d]) => {
-      html += `<div class="row"><div class="sw line" style="background:${d.color};height:5px"></div>${k} ${d.label}</div>`;
+      const m = ofSum[k] || 0;
+      if (m <= 0) return; // nicht genutzt = nicht anzeigen
+      html += `<div class="row"><div class="sw line" style="background:${d.color};height:5px"></div>${k} ${d.label} <b style="margin-left:auto;color:var(--navy)">${m.toFixed(1)} m</b></div>`;
     });
   }
   if (!hasObjects && !hasTraces) {
@@ -257,6 +295,8 @@ export function render(ctx) {
   renderPins(ctx);
   renderTraces(ctx);
   renderLegend(ctx.state);
+  // Alle Link-Pfeile neu zeichnen wenn Toggle aktiv
+  import('./links.js').then(m => m.renderAllLinks(ctx));
   ctx.updateTotal();
   ctx.save();
 }

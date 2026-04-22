@@ -2,12 +2,16 @@
 // Asset-Info-Dialog (read-only) und Edit-Dialog
 
 import { openModal, closeModal, fmtEur, escapeHtml, renderPhotos } from './ui.js';
+import { showSingleArrow, hideSingleArrow } from './links.js';
 
 export function openObjDialogInfo(id, ctx) {
   const o = ctx.state.objects.find(x => x.id === id);
   if (!o) return;
   const cat = ctx.state.catalog.find(c => c.id === o.catId);
   if (!cat) return;
+
+  // Pfeil zur Trasse wenn verknüpft
+  if (o.linkedTraceId) showSingleArrow(ctx, o.id);
 
   const sheet = document.querySelector('#modalObjInfo .sheet');
   sheet.innerHTML = `
@@ -36,8 +40,8 @@ export function openObjDialogInfo(id, ctx) {
 
   sheet.onclick = (e) => {
     const act = e.target.dataset.act;
-    if (act === 'close') closeModal('modalObjInfo');
-    if (act === 'edit') { closeModal('modalObjInfo'); openObjDialogEdit(id, ctx); }
+    if (act === 'close') { hideSingleArrow(); closeModal('modalObjInfo'); }
+    if (act === 'edit') { hideSingleArrow(); closeModal('modalObjInfo'); openObjDialogEdit(id, ctx); }
     if (e.target.dataset.photo) window.open(e.target.dataset.photo, '_blank');
   };
 
@@ -48,6 +52,9 @@ export function openObjDialogEdit(id, ctx) {
   if (ctx.state.uiMode !== 'edit') return;
   const o = ctx.state.objects.find(x => x.id === id);
   if (!o) return;
+
+  // Pfeil zur Trasse wenn verknüpft
+  if (o.linkedTraceId) showSingleArrow(ctx, o.id);
 
   const sheet = document.querySelector('#modalObj .sheet');
   sheet.innerHTML = `
@@ -154,7 +161,14 @@ export function openObjDialogEdit(id, ctx) {
     const len = t.segments.reduce((s, seg) => s + seg.len, 0);
     return `<option value="${t.id}" ${t.id === o.linkedTraceId ? 'selected' : ''}>Trasse #${i+1} · ${len.toFixed(1)} m · ${t.segments.length} Segmente</option>`;
   }).join('');
-  traceSel.onchange = () => updateSegSelect(o, ctx);
+  traceSel.onchange = () => {
+    // Live: sofort in Objekt schreiben und Pfeil aktualisieren
+    o.linkedTraceId = traceSel.value || null;
+    if (!o.linkedTraceId) o.linkedSegmentIdx = null;
+    updateSegSelect(o, ctx);
+    if (o.linkedTraceId) showSingleArrow(ctx, o.id);
+    else hideSingleArrow();
+  };
   updateSegSelect(o, ctx);
 
   document.getElementById('objIconType').value = o.iconTypeOverride || '';
@@ -177,9 +191,9 @@ export function openObjDialogEdit(id, ctx) {
 
   sheet.onclick = (e) => {
     const act = e.target.dataset.act;
-    if (act === 'close') closeModal('modalObj');
-    if (act === 'del') deleteCurrentObj(id, ctx);
-    if (act === 'save') saveCurrentObj(id, ctx);
+    if (act === 'close') { hideSingleArrow(); closeModal('modalObj'); }
+    if (act === 'del') { hideSingleArrow(); deleteCurrentObj(id, ctx); }
+    if (act === 'save') { hideSingleArrow(); saveCurrentObj(id, ctx); }
   };
 
   openModal('modalObj');
@@ -205,6 +219,13 @@ function updateSegSelect(o, ctx) {
     const sel = (o.linkedSegmentIdx === i && o.linkedTraceId === traceId) ? 'selected' : '';
     return `<option value="${i}" ${sel}>Segment #${i+1} · ${seg.of} ${lbl} · ${seg.len.toFixed(1)} m</option>`;
   }).join('');
+
+  // Live-Update: wenn Segment geändert, Pfeil neu ziehen
+  segSel.onchange = () => {
+    const v = segSel.value;
+    o.linkedSegmentIdx = v === '' ? null : parseInt(v);
+    if (o.linkedTraceId) showSingleArrow(ctx, o.id);
+  };
 }
 
 function saveCurrentObj(id, ctx) {

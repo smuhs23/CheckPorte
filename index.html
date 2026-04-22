@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="theme-color" content="#1B2D5E">
+<title>TiefbauPorte · Union E</title>
+<style>
+:root{--navy:#1B2D5E;--green:#78B51A;--bg:#F4F4F4;--text:#1A1A1A}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;font-family:Calibri,Arial,sans-serif;color:var(--text);background:var(--bg)}
+body{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+.brand{display:flex;align-items:center;gap:14px;margin-bottom:32px}
+.logo{width:56px;height:56px;background:var(--green);color:var(--navy);font-weight:bold;display:flex;align-items:center;justify-content:center;border-radius:10px;font-size:32px}
+.brand h1{margin:0;color:var(--navy);font-size:28px;line-height:1}
+.brand h1 small{display:block;font-size:14px;color:#666;font-weight:400;margin-top:4px}
+.choices{display:grid;grid-template-columns:1fr;gap:16px;max-width:520px;width:100%}
+@media (min-width:640px){.choices{grid-template-columns:1fr 1fr}}
+.card{background:#fff;border-radius:12px;padding:20px 22px;box-shadow:0 2px 8px rgba(0,0,0,.1);text-decoration:none;color:var(--text);border:2px solid transparent;transition:all .15s}
+.card:hover{border-color:var(--green);transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,0,0,.15)}
+.card h2{color:var(--navy);margin:0 0 6px;font-size:18px}
+.card .tag{display:inline-block;background:var(--green);color:var(--navy);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;margin-bottom:10px}
+.card .tag.stable{background:#e0e0e0;color:#555}
+.card p{margin:0;font-size:13px;color:#666;line-height:1.5}
+.foot{margin-top:36px;font-size:11px;color:#888;text-align:center}
+</style>
+</head>
+<body>
+<div class="brand">
+  <div class="logo">E</div>
+  <h1>TiefbauPorte<small>Vor-Ort-Check · Union E GmbH</small></h1>
+</div>
+<div class="choices">
+  <a href="v6/" class="card">
+    <div class="tag">Aktuelle Version</div>
+    <h2>v6 · Neu</h2>
+    <p>Emoji-Pins, editierbare Kabeltypen, Asset↔Trassen-Verknüpfung, View-Modus, erweiterte Exporte.</p>
+  </a>
+  <a href="v5/TiefbauPorte.html" class="card">
+    <div class="tag stable">Stabil</div>
+    <h2>v5 · Vorgängerversion</h2>
+    <p>Bekannte Version, bleibt als Fallback dauerhaft erreichbar. Keine neuen Features.</p>
+  </a>
+</div>
+<div class="foot">Union E GmbH · Die HPM Mobilmacher · Vinckeweg 15 · 47119 Duisburg</div>
+</body>
+</html>
